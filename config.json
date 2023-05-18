@@ -1,0 +1,10 @@
+{
+    "STORE_PATH_MNIST": "ddpm_model_mnist.pt",
+    "STORE_PATH_FASHION": "ddpm_model_fashion.pt",
+    "no_train": false,
+    "fashion": true,
+    "batch_size": 128,
+    "n_epochs": 20,
+    "lr": 0.001,
+    "store_path": "ddpm_fashion.pt"
+  }  
