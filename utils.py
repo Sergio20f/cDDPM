@@ -5,6 +5,7 @@ import numpy as np
 import torch
 
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 def show_images(images, title=""):
@@ -195,3 +196,29 @@ def _make_te(self, dim_in, dim_out):
         nn.SiLU(),
         nn.Linear(dim_out, dim_out)
     )
+
+
+def get_nonlinearity(name):
+    """Helper function to get non linearity module, choose from relu/softplus/swish/lrelu"""
+    if name == "relu":
+        return nn.ReLU(inplace=True)
+    elif name == "softplus":
+        return nn.Softplus()
+    elif name == "swish":
+        return Swish(inplace=True)
+    elif name == "lrelu":
+        return nn.LeakyReLU()
+    
+
+class Swish(nn.Module):
+    def __init__(self, inplace=False):
+        """The Swish non linearity function"""
+        super().__init__()
+        self.inplace = True
+
+    def forward(self, x):
+        if self.inplace:
+            x.mul_(F.sigmoid(x))
+            return x
+        else:
+            return x * F.sigmoid(x)

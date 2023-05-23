@@ -1,108 +1,135 @@
-class MyContinuousUNet(nn.Module):
-    def __init__(self, n_steps=1000, time_emb_dim=100):
-        super(MyContinuousUNet, self).__init__()
+import torch
+import torch.nn as nn
 
-        # Sinusoidal embedding
-        self.time_embed = nn.Embedding(n_steps, time_emb_dim)
-        self.time_embed.weight.data = sinusoidal_embedding(n_steps, time_emb_dim)
-        self.time_embed.requires_grad_(False)
+from cUNet_bb import *
+from utils import get_nonlinearity
 
-        # First half
-        self.te1 = self._make_te(time_emb_dim, 1)
-        self.b1 = nn.Sequential(
-            ODEBlock(ConvSODEFunc((1, 28, 28), 1, 10)),
-            ODEBlock(ConvSODEFunc((10, 28, 28), 10, 10)),
-            ODEBlock(ConvSODEFunc((10, 28, 28), 10, 10))
+
+# Second-order ODE UNet
+class ConvSODEUNet(nn.Module):
+    def __init__(
+        self,
+        num_filters,
+        output_dim=1,
+        time_dependent=False,
+        non_linearity="softplus",
+        tol=1e-3,
+        adjoint=False,
+        method="rk4"
+    ):
+        """
+        ConvSODEUNet (Second order ODE UNet)
+        Args:
+            num_filters (int): number of filters for first conv layer
+            output_dim (int): how many feature maps the network outputs
+            time_dependent (bool): whether to concat the time as a feature map before the convs
+            non_linearity (str): which non_linearity to use (for options see get_nonlinearity)
+            tol (float): tolerance to be used for ODE solver
+            adjoint (bool): whether to use the adjoint method to calculate the gradients
+        """
+        super(ConvSODEUNet, self).__init__()
+        nf = num_filters
+        self.method = method
+        print(f"Solver: {method}")
+
+        self.input_1x1 = nn.Conv2d(3, nf, 1, 1)
+        self.initial_velocity = InitialVelocity(nf, non_linearity)
+
+        ode_down1 = ConvSODEFunc(nf * 2, time_dependent, non_linearity)
+        self.odeblock_down1 = ODEBlock(ode_down1, tol=tol, adjoint=adjoint)
+        self.conv_down1_2 = nn.Conv2d(nf * 2, nf * 4, 1, 1)
+
+        ode_down2 = ConvSODEFunc(nf * 4, time_dependent, non_linearity)
+        self.odeblock_down2 = ODEBlock(ode_down2, tol=tol, adjoint=adjoint)
+        self.conv_down2_3 = nn.Conv2d(nf * 4, nf * 8, 1, 1)
+
+        ode_down3 = ConvSODEFunc(nf * 8, time_dependent, non_linearity)
+        self.odeblock_down3 = ODEBlock(ode_down3, tol=tol, adjoint=adjoint)
+        self.conv_down3_4 = nn.Conv2d(nf * 8, nf * 16, 1, 1)
+
+        ode_down4 = ConvSODEFunc(nf * 16, time_dependent, non_linearity)
+        self.odeblock_down4 = ODEBlock(ode_down4, tol=tol, adjoint=adjoint)
+        self.conv_down4_embed = nn.Conv2d(nf * 16, nf * 32, 1, 1)
+
+        ode_embed = ConvSODEFunc(nf * 32, time_dependent, non_linearity)
+        self.odeblock_embedding = ODEBlock(ode_embed, tol=tol, adjoint=adjoint)
+        self.conv_up_embed_1 = nn.Conv2d(nf * 32 + nf * 16, nf * 16, 1, 1)
+
+        ode_up1 = ConvSODEFunc(nf * 16, time_dependent, non_linearity)
+        self.odeblock_up1 = ODEBlock(ode_up1, tol=tol, adjoint=adjoint)
+        self.conv_up1_2 = nn.Conv2d(nf * 16 + nf * 8, nf * 8, 1, 1)
+
+        ode_up2 = ConvSODEFunc(nf * 8, time_dependent, non_linearity)
+        self.odeblock_up2 = ODEBlock(ode_up2, tol=tol, adjoint=adjoint)
+        self.conv_up2_3 = nn.Conv2d(nf * 8 + nf * 4, nf * 4, 1, 1)
+
+        ode_up3 = ConvSODEFunc(nf * 4, time_dependent, non_linearity)
+        self.odeblock_up3 = ODEBlock(ode_up3, tol=tol, adjoint=adjoint)
+        self.conv_up3_4 = nn.Conv2d(nf * 4 + nf * 2, nf * 2, 1, 1)
+
+        ode_up4 = ConvSODEFunc(nf * 2, time_dependent, non_linearity)
+        self.odeblock_up4 = ODEBlock(ode_up4, tol=tol, adjoint=adjoint)
+
+        self.classifier = nn.Conv2d(nf * 2, output_dim, 1)
+
+        self.non_linearity = get_nonlinearity(non_linearity)
+
+    def forward(self, x):
+        x = self.initial_velocity(x)
+
+        features1 = self.odeblock_down1(x,  method=self.method)  # 512
+        x = self.non_linearity(self.conv_down1_2(features1))
+        x = nn.functional.interpolate(
+            x, scale_factor=0.5, mode="bilinear", align_corners=False
         )
-        self.down1 = nn.Conv2d(10, 10, 4, 2, 1)
 
-        self.te2 = self._make_te(time_emb_dim, 10)
-        self.b2 = nn.Sequential(
-            ODEBlock(ConvSODEFunc((10, 14, 14), 10, 20)),
-            ODEBlock(ConvSODEFunc((20, 14, 14), 20, 20)),
-            ODEBlock(ConvSODEFunc((20, 14, 14), 20, 20))
-        )
-        self.down2 = nn.Conv2d(20, 20, 4, 2, 1)
-
-        self.te3 = self._make_te(time_emb_dim, 20)
-        self.b3 = nn.Sequential(
-            ODEBlock(ConvSODEFunc((20, 7, 7), 20, 40)),
-            ODEBlock(ConvSODEFunc((40, 7, 7), 40, 40)),
-            ODEBlock(ConvSODEFunc((40, 7, 7), 40, 40))
-        )
-        self.down3 = nn.Sequential(
-            nn.Conv2d(40, 40, 2, 1),
-            nn.SiLU(),
-            nn.Conv2d(40, 40, 4, 2, 1)
+        features2 = self.odeblock_down2(x,  method=self.method)  # 256
+        x = self.non_linearity(self.conv_down2_3(features2))
+        x = nn.functional.interpolate(
+            x, scale_factor=0.5, mode="bilinear", align_corners=False
         )
 
-        # Bottleneck
-        self.te_mid = self._make_te(time_emb_dim, 40)
-        self.b_mid = nn.Sequential(
-            ODEBlock(ConvSODEFunc((40, 3, 3), 40, 20)),
-            ODEBlock(ConvSODEFunc((20, 3, 3), 20, 20)),
-            ODEBlock(ConvSODEFunc((20, 3, 3), 20, 40))
+        features3 = self.odeblock_down3(x,  method=self.method)  # 128
+        x = self.non_linearity(self.conv_down3_4(features3))
+        x = nn.functional.interpolate(
+            x, scale_factor=0.5, mode="bilinear", align_corners=False
         )
 
-        # Second half
-        self.up1 = nn.Sequential(
-            nn.ConvTranspose2d(40, 40, 4, 2, 1),
-            nn.SiLU(),
-            nn.ConvTranspose2d(40, 40, 2, 1)
+        features4 = self.odeblock_down4(x,  method=self.method)  # 64
+        x = self.non_linearity(self.conv_down4_embed(features4))
+        x = nn.functional.interpolate(
+            x, scale_factor=0.5, mode="bilinear", align_corners=False
         )
 
-        self.te4 = self._make_te(time_emb_dim, 80)
-        self.b4 = nn.Sequential(
-            ODEBlock(ConvSODEFunc((80, 7, 7), 80, 40)),
-            ODEBlock(ConvSODEFunc((40, 7, 7), 40, 20)),
-            ODEBlock(ConvSODEFunc((20, 7, 7), 20, 20))
+        x = self.odeblock_embedding(x,  method=self.method)  # 32
+
+        x = nn.functional.interpolate(
+            x, scale_factor=2, mode="bilinear", align_corners=False
         )
+        x = torch.cat((x, features4), dim=1)
+        x = self.non_linearity(self.conv_up_embed_1(x))
+        x = self.odeblock_up1(x,  method=self.method)
 
-        self.up2 = nn.ConvTranspose2d(20, 20, 4, 2, 1)
-        self.te5 = self._make_te(time_emb_dim, 40)
-        self.b5 = nn.Sequential(
-            ODEBlock(ConvSODEFunc((40, 14, 14), 40, 20)),
-            ODEBlock(ConvSODEFunc((20, 14, 14), 20, 10)),
-            ODEBlock(ConvSODEFunc((10, 14, 14), 10, 10))
+        x = nn.functional.interpolate(
+            x, scale_factor=2, mode="bilinear", align_corners=False
         )
+        x = torch.cat((x, features3), dim=1)
+        x = self.non_linearity(self.conv_up1_2(x))
+        x = self.odeblock_up2(x,  method=self.method)
 
-        self.up3 = nn.ConvTranspose2d(10, 10, 4, 2, 1)
-        self.te_out = self._make_te(time_emb_dim, 20)
-        self.b_out = nn.Sequential(
-            ODEBlock(ConvSODEFunc((20, 28, 28), 20, 10)),
-            ODEBlock(ConvSODEFunc((10, 28, 28), 10, 10)),
-            ODEBlock(ConvSODEFunc((10, 28, 28), 10, 10, normalize=False))
+        x = nn.functional.interpolate(
+            x, scale_factor=2, mode="bilinear", align_corners=False
         )
+        x = torch.cat((x, features2), dim=1)
+        x = self.non_linearity(self.conv_up2_3(x))
+        x = self.odeblock_up3(x,  method=self.method)
 
-        self.conv_out = nn.Conv2d(10, 1, 3, 1, 1)
-
-    def forward(self, x, t):
-        # x is (N, 2, 28, 28) (image with positional embedding stacked on channel dimension)
-        t = self.time_embed(t)
-        n = len(x)
-        out1 = self.b1(x + self.te1(t).reshape(n, -1, 1, 1))  # (N, 10, 28, 28)
-        out2 = self.b2(self.down1(out1) + self.te2(t).reshape(n, -1, 1, 1))  # (N, 20, 14, 14)
-        out3 = self.b3(self.down2(out2) + self.te3(t).reshape(n, -1, 1, 1))  # (N, 40, 7, 7)
-
-        out_mid = self.b_mid(self.down3(out3) + self.te_mid(t).reshape(n, -1, 1, 1))  # (N, 40, 3, 3)
-
-        out4 = torch.cat((out3, self.up1(out_mid)), dim=1)  # (N, 80, 7, 7)
-        out4 = self.b4(out4 + self.te4(t).reshape(n, -1, 1, 1))  # (N, 20, 7, 7)
-
-        out5 = torch.cat((out2, self.up2(out4)), dim=1)  # (N, 40, 14, 14)
-        out5 = self.b5(out5 + self.te5(t).reshape(n, -1, 1, 1))  # (N, 10, 14, 14)
-
-        out = torch.cat((out1, self.up3(out5)), dim=1)  # (N, 20, 28, 28)
-        out = self.b_out(out + self.te_out(t).reshape(n, -1, 1, 1))  # (N, 1, 28, 28)
-
-        out = self.conv_out(out)
-
-        return out
-
-    def _make_te(self, dim_in, dim_out):
-        return nn.Sequential(
-            nn.Linear(dim_in, dim_out),
-            nn.SiLU(),
-            nn.Linear(dim_out, dim_out),
-            nn.SiLU()
+        x = nn.functional.interpolate(
+            x, scale_factor=2, mode="bilinear", align_corners=False
         )
+        x = torch.cat((x, features1), dim=1)
+        x = self.non_linearity(self.conv_up3_4(x))
+        x = self.odeblock_up4(x,  method=self.method)
+
+        pred = self.classifier(x)
+        return pred
