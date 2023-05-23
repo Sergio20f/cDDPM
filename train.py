@@ -11,6 +11,7 @@ from torchvision.datasets.mnist import MNIST, FashionMNIST
 from utils import show_images, generate_new_images
 from simple_DDPM import MyDDPM
 from UNet import MyUNet
+from cUNet import ConvSODEUNet
 
 
 def training_loop(ddpm, loader, n_epochs, optim, device, display=False, store_path="ddpm_model.pt"):
@@ -86,7 +87,8 @@ if __name__ == "__main__":
 
     # Defining model
     n_steps, min_beta, max_beta = 1000, 10 ** -4, 0.02  # Originally used by the authors (include in config)
-    ddpm = MyDDPM(MyUNet(n_steps), n_steps=n_steps, min_beta=min_beta, max_beta=max_beta, device=device)
+    ddpm = MyDDPM(ConvSODEUNet(n_steps), n_steps=n_steps, min_beta=min_beta, max_beta=max_beta, device=device) # MyUNet -> ConvSODEUNet
+    #ddpm = MyDDPM(MyUNet(n_steps), n_steps=n_steps, min_beta=min_beta, max_beta=max_beta, device=device)
 
     # Training
     store_path = "ddpm_fashion.pt" if fashion else "ddpm_mnist.pt"

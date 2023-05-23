@@ -144,6 +144,9 @@ class MyUNet(nn.Module):
         """
         t = self.time_embed(t)
         n = len(x)
+        print(t.shape)
+        print(x.shape)
+        print(self.te1(t).reshape(n, -1, 1, 1).shape)
         out1 = self.b1(x + self.te1(t).reshape(n, -1, 1, 1))
         out2 = self.b2(self.down1(out1) + self.te2(t).reshape(n, -1, 1, 1))
         out3 = self.b3(self.down2(out2) + self.te3(t).reshape(n, -1, 1, 1))
