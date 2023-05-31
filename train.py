@@ -5,7 +5,7 @@ import json
 
 from torch.optim import Adam
 from torch.utils.data import DataLoader
-from torchvision.transforms import Compose, ToTensor, Lambda
+from torchvision.transforms import Compose, ToTensor, Lambda, Resize
 from torchvision.datasets.mnist import MNIST, FashionMNIST
 
 from utils import show_images, generate_new_images
@@ -79,6 +79,7 @@ if __name__ == "__main__":
     # Loading the data (converting each image into a tensor and normalizing between [-1, 1])
     transform = Compose([
         ToTensor(),
+        Resize(size=(64,64)),
         Lambda(lambda x: (x - 0.5) * 2)]
     )
     ds_fn = FashionMNIST if fashion else MNIST
