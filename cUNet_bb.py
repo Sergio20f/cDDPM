@@ -13,10 +13,14 @@ class InitialVelocity(nn.Module):
     def __init__(self, nf, non_linearity="relu"):
         super(InitialVelocity, self).__init__()
 
-        self.norm1 = nn.InstanceNorm2d(nf)
-        self.conv1 = nn.Conv2d(nf, nf, kernel_size=3, stride=1, padding=1)
+        #self.norm1 = nn.InstanceNorm2d(nf)
+        self.norm1 = nn.InstanceNorm2d(1)
+        #self.conv1 = nn.Conv2d(nf, nf, kernel_size=3, stride=1, padding=1)
+        # For 1 channel images (?)
+        self.conv1 = nn.Conv2d(1, nf, kernel_size=3, stride=1, padding=1)
         self.norm2 = nn.InstanceNorm2d(nf)
-        self.conv2 = nn.Conv2d(nf, nf, kernel_size=1, stride=1, padding=0)
+        #self.conv2 = nn.Conv2d(nf, nf, kernel_size=1, stride=1, padding=0)
+        self.conv2 = nn.Conv2d(nf, nf*2, kernel_size=1, stride=1, padding=0)
 
         self.non_linearity = get_nonlinearity(non_linearity)
 
@@ -27,7 +31,7 @@ class InitialVelocity(nn.Module):
         out = self.norm2(out)
         out = self.conv2(out)
         out = self.non_linearity(out)
-        return torch.cat((x0, out), dim=1)
+        return out #torch.cat((x0, out), dim=1)
 
 
 class ODEBlock(nn.Module):
