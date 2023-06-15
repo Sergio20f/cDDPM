@@ -2,11 +2,13 @@ import torch
 import torch.nn as nn
 from tqdm.auto import tqdm
 import json
+import matplotlib.pyplot as plt
 
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, ToTensor, Lambda, Resize
 from torchvision.datasets.mnist import MNIST, FashionMNIST
+from torchvision.datasets import STL10
 
 from utils import show_images, generate_new_images
 from simple_DDPM import MyDDPM
@@ -18,6 +20,9 @@ def training_loop(ddpm, loader, n_epochs, optim, device, display=False, store_pa
     mse = nn.MSELoss()
     best_loss = float("inf")
     n_steps = ddpm.n_steps
+    
+    # Store the training losses
+    training_losses = []
 
     for epoch in tqdm(range(n_epochs), desc=f"Training progress", colour="#00ff00"):
         epoch_loss = 0.0
@@ -44,6 +49,9 @@ def training_loop(ddpm, loader, n_epochs, optim, device, display=False, store_pa
 
             epoch_loss += loss.item() * len(x0) / len(loader.dataset)
 
+        # Append the average loss of this epoch
+        training_losses.append(epoch_loss)
+
         # Display images generated at this epoch
         if display:
             show_images(generate_new_images(ddpm, device=device), f"Images generated at epoch {epoch + 1}")
@@ -57,6 +65,14 @@ def training_loop(ddpm, loader, n_epochs, optim, device, display=False, store_pa
             log_string += " --> Best model ever (stored)"
 
         print(log_string)
+    
+    # Plot the training losses
+    plt.plot(training_losses, label='Training Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Training Loss Curve')
+    plt.legend()
+    plt.show()
 
 if __name__ == "__main__":
     
@@ -70,7 +86,6 @@ if __name__ == "__main__":
     STORE_PATH_MNIST = config['STORE_PATH_MNIST']
     STORE_PATH_FASHION = config['STORE_PATH_FASHION']
     no_train = config['no_train']
-    fashion = config['fashion']
     batch_size = config['batch_size']
     n_epochs = config['n_epochs']
     lr = config['lr']
@@ -79,19 +94,22 @@ if __name__ == "__main__":
     # Loading the data (converting each image into a tensor and normalizing between [-1, 1])
     transform = Compose([
         ToTensor(),
-        Resize(size=(64,64)),
+        #Resize(size=(64,64)),
         Lambda(lambda x: (x - 0.5) * 2)]
     )
-    ds_fn = FashionMNIST if fashion else MNIST
-    dataset = ds_fn("./datasets", download=True, train=True, transform=transform)
+
+    ds_fn = STL10
+    #dataset = ds_fn("./datasets", download=True, train=True, transform=transform)
+    dataset = ds_fn("./datasets", download=True, split='train', transform=transform)
     loader = DataLoader(dataset, batch_size, shuffle=True)
 
     # Defining model
     n_steps, min_beta, max_beta = 1000, 10 ** -4, 0.02  # Originally used by the authors (include in config)
-    ddpm = MyDDPM(ConvSODEUNet(n_steps), n_steps=n_steps, min_beta=min_beta, max_beta=max_beta, device=device) # MyUNet -> ConvSODEUNet
-    #ddpm = MyDDPM(MyUNet(n_steps), n_steps=n_steps, min_beta=min_beta, max_beta=max_beta, device=device)
+    #ddpm = MyDDPM(ConvSODEUNet(n_steps), n_steps=n_steps, min_beta=min_beta, max_beta=max_beta, device=device) # MyUNet -> ConvSODEUNet
+    ddpm = MyDDPM(MyUNet(n_steps), n_steps=n_steps, min_beta=min_beta, max_beta=max_beta, device=device)
 
     # Training
-    store_path = "ddpm_fashion.pt" if fashion else "ddpm_mnist.pt"
+    #store_path = "ddpm_fashion.pt" if fashion else "ddpm_mnist.pt"
+    store_path = "ddpm_STL10.pt"
     if not no_train:
         training_loop(ddpm, loader, n_epochs, optim=Adam(ddpm.parameters(), lr), device=device, store_path=store_path)
