@@ -3,7 +3,7 @@
     "STORE_PATH_FASHION": "ddpm_model_fashion.pt",
     "no_train": false,
     "batch_size": 64,
-    "n_epochs": 20,
+    "n_epochs": 5,
     "lr": 0.001,
     "store_path": "ddpm_fashion.pt"
   }  

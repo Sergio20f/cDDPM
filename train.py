@@ -8,7 +8,7 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, ToTensor, Lambda, Resize
 from torchvision.datasets.mnist import MNIST, FashionMNIST
-from torchvision.datasets import STL10
+from torchvision.datasets import STL10, CIFAR10
 
 from utils import show_images, generate_new_images
 from simple_DDPM import MyDDPM
@@ -72,7 +72,9 @@ def training_loop(ddpm, loader, n_epochs, optim, device, display=False, store_pa
     plt.ylabel('Loss')
     plt.title('Training Loss Curve')
     plt.legend()
-    plt.show()
+    plt.savefig('training_loss_curve.png')
+
+    
 
 if __name__ == "__main__":
     
@@ -94,22 +96,22 @@ if __name__ == "__main__":
     # Loading the data (converting each image into a tensor and normalizing between [-1, 1])
     transform = Compose([
         ToTensor(),
-        #Resize(size=(64,64)),
+        Resize(size=(96,96)),
         Lambda(lambda x: (x - 0.5) * 2)]
     )
 
-    ds_fn = STL10
-    #dataset = ds_fn("./datasets", download=True, train=True, transform=transform)
-    dataset = ds_fn("./datasets", download=True, split='train', transform=transform)
+    ds_fn = CIFAR10
+    dataset = ds_fn("./datasets", download=True, train=True, transform=transform)
+    #dataset = ds_fn("./datasets", download=True, split='train', transform=transform)
     loader = DataLoader(dataset, batch_size, shuffle=True)
 
     # Defining model
     n_steps, min_beta, max_beta = 1000, 10 ** -4, 0.02  # Originally used by the authors (include in config)
-    #ddpm = MyDDPM(ConvSODEUNet(n_steps), n_steps=n_steps, min_beta=min_beta, max_beta=max_beta, device=device) # MyUNet -> ConvSODEUNet
-    ddpm = MyDDPM(MyUNet(n_steps), n_steps=n_steps, min_beta=min_beta, max_beta=max_beta, device=device)
+    ddpm = MyDDPM(ConvSODEUNet(n_steps), n_steps=n_steps, min_beta=min_beta, max_beta=max_beta, device=device) # MyUNet -> ConvSODEUNet
+    #ddpm = MyDDPM(MyUNet(n_steps), n_steps=n_steps, min_beta=min_beta, max_beta=max_beta, device=device)
 
     # Training
     #store_path = "ddpm_fashion.pt" if fashion else "ddpm_mnist.pt"
-    store_path = "ddpm_STL10.pt"
+    store_path = "ddpm_cifar10.pt"
     if not no_train:
-        training_loop(ddpm, loader, n_epochs, optim=Adam(ddpm.parameters(), lr), device=device, store_path=store_path)
+      training_loop(ddpm, loader, n_epochs, optim=Adam(ddpm.parameters(), lr), device=device, store_path=store_path)

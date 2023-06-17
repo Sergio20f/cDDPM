@@ -17,7 +17,7 @@ class InitialVelocity(nn.Module):
         self.norm1 = nn.InstanceNorm2d(1)
         #self.conv1 = nn.Conv2d(nf, nf, kernel_size=3, stride=1, padding=1)
         # For 1 channel images (?)
-        self.conv1 = nn.Conv2d(1, nf, kernel_size=3, stride=1, padding=1)
+        self.conv1 = nn.Conv2d(3, nf, kernel_size=3, stride=1, padding=1)
         self.norm2 = nn.InstanceNorm2d(nf)
         #self.conv2 = nn.Conv2d(nf, nf, kernel_size=1, stride=1, padding=0)
         self.conv2 = nn.Conv2d(nf, nf*2, kernel_size=1, stride=1, padding=0)
@@ -155,3 +155,4 @@ class ConvSODEFunc(nn.Module):
             out = self.conv2(out)
             out = self.non_linearity(out)
         return out
+    
