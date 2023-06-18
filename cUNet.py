@@ -12,7 +12,7 @@ class ConvSODEUNet(nn.Module):
         n_steps=1000,
         time_emb_dim=1,
         num_filters=10,
-        output_dim=1,
+        output_dim=3,
         time_dependent=False,
         non_linearity="softplus",
         tol=1e-3,
