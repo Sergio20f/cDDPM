@@ -1,117 +1,38 @@
-import torch
-import torch.nn as nn
-from tqdm.auto import tqdm
-import json
-import matplotlib.pyplot as plt
-
-from torch.optim import Adam
-from torch.utils.data import DataLoader
-from torchvision.transforms import Compose, ToTensor, Lambda, Resize
-from torchvision.datasets.mnist import MNIST, FashionMNIST
-from torchvision.datasets import STL10, CIFAR10
-
-from utils import show_images, generate_new_images
-from simple_DDPM import MyDDPM
-from UNet import MyUNet
+from denoising_diffusion_pytorch import GaussianDiffusion, Trainer
 from cUNet import ConvSODEUNet
 
 
-def training_loop(ddpm, loader, n_epochs, optim, device, display=False, store_path="ddpm_model.pt"):
-    mse = nn.MSELoss()
-    best_loss = float("inf")
-    n_steps = ddpm.n_steps
-    
-    # Store the training losses
-    training_losses = []
+model = ConvSODEUNet(n_steps=1000)
 
-    for epoch in tqdm(range(n_epochs), desc=f"Training progress", colour="#00ff00"):
-        epoch_loss = 0.0
-        for step, batch in enumerate(tqdm(loader, leave=False, desc=f"Epoch {epoch + 1}/{n_epochs}", colour="#005500")):
-            # Loading data
-            x0 = batch[0].to(device)
-            n = len(x0)
+diffusion = GaussianDiffusion(
+    model,
+    image_size = 64,
+    timesteps = 1000,           # number of steps
+    sampling_timesteps = 256    # number of sampling timesteps (using ddim for faster inference [see citation for ddim paper])
+)
 
-            # Picking some noise for each of the images in the batch, a timestep and the respective alpha_bars
-            eta = torch.randn_like(x0).to(device)
-            t = torch.randint(0, n_steps, (n,)).to(device)
+trainer = Trainer(
+    diffusion,
+    #"trainingSet/trainingSet/",
+    #"PetImages/Cat",
+    #"cifar10/train",
+    #"celeba_hq_256",
+    "img_align_celeba",
+    train_batch_size = 128,
+    train_lr =2e-4, #8e-5,
+    train_num_steps = 500000, #700000, # total training steps
+    gradient_accumulate_every = 2,    # gradient accumulation steps
+    ema_decay = 0.9999, # 0.995       # exponential moving average decay
+    amp = True,                       # turn on mixed precision
+    calculate_fid = False             # whether to calculate fid during training
+)
 
-            # Computing the noisy image based on x0 and the time-step (forward process)
-            noisy_imgs = ddpm(x0, t, eta)
+# Load the desired model
+#milestone = 10  # Specify the milestone or identifier of the saved model
+#trainer.load(milestone)
 
-            # Getting model estimation of noise based on the images and the time-step
-            eta_theta = ddpm.backward(noisy_imgs, t.reshape(n, -1))
+total_params = sum(p.numel() for p in model.parameters())
+print(f"Total number of parameters in cUNet: {total_params}")
 
-            # Optimizing the MSE between the noise plugged and the predicted noise
-            loss = mse(eta_theta, eta)
-            optim.zero_grad()
-            loss.backward()
-            optim.step()
-
-            epoch_loss += loss.item() * len(x0) / len(loader.dataset)
-
-        # Append the average loss of this epoch
-        training_losses.append(epoch_loss)
-
-        # Display images generated at this epoch
-        if display:
-            show_images(generate_new_images(ddpm, device=device), f"Images generated at epoch {epoch + 1}")
-
-        log_string = f"Loss at epoch {epoch + 1}: {epoch_loss:.3f}"
-
-        # Storing the model
-        if best_loss > epoch_loss:
-            best_loss = epoch_loss
-            torch.save(ddpm.state_dict(), store_path)
-            log_string += " --> Best model ever (stored)"
-
-        print(log_string)
-    
-    # Plot the training losses
-    plt.plot(training_losses, label='Training Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Training Loss Curve')
-    plt.legend()
-    plt.savefig('training_loss_curve.png')
-
-    
-
-if __name__ == "__main__":
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    # Read the config file
-    with open('config.json', 'r') as file:
-        config = json.load(file)
-
-    # Access the parameter values
-    STORE_PATH_MNIST = config['STORE_PATH_MNIST']
-    STORE_PATH_FASHION = config['STORE_PATH_FASHION']
-    no_train = config['no_train']
-    batch_size = config['batch_size']
-    n_epochs = config['n_epochs']
-    lr = config['lr']
-    store_path = config['store_path']
-
-    # Loading the data (converting each image into a tensor and normalizing between [-1, 1])
-    transform = Compose([
-        ToTensor(),
-        Resize(size=(96,96)),
-        Lambda(lambda x: (x - 0.5) * 2)]
-    )
-
-    ds_fn = CIFAR10
-    dataset = ds_fn("./datasets", download=True, train=True, transform=transform)
-    #dataset = ds_fn("./datasets", download=True, split='train', transform=transform)
-    loader = DataLoader(dataset, batch_size, shuffle=True)
-
-    # Defining model
-    n_steps, min_beta, max_beta = 1000, 10 ** -4, 0.02  # Originally used by the authors (include in config)
-    ddpm = MyDDPM(ConvSODEUNet(n_steps), n_steps=n_steps, min_beta=min_beta, max_beta=max_beta, device=device) # MyUNet -> ConvSODEUNet
-    #ddpm = MyDDPM(MyUNet(n_steps), n_steps=n_steps, min_beta=min_beta, max_beta=max_beta, device=device)
-
-    # Training
-    #store_path = "ddpm_fashion.pt" if fashion else "ddpm_mnist.pt"
-    store_path = "ddpm_cifar10.pt"
-    if not no_train:
-      training_loop(ddpm, loader, n_epochs, optim=Adam(ddpm.parameters(), lr), device=device, store_path=store_path)
+print("Training Starts")
+trainer.train()
